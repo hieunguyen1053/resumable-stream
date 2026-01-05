@@ -3,7 +3,6 @@ name: CI/CD
 on:
   push:
     branches: [ main ]
-    tags: [ 'v*' ]
   pull_request:
     branches: [ main ]
 
@@ -39,28 +38,3 @@ jobs:
       env:
         REDIS_URL: redis://localhost:6379
 
-  publish:
-    needs: test
-    if: startsWith(github.ref, 'refs/tags/v')
-    runs-on: ubuntu-latest
-    permissions:
-      id-token: write  # IMPORTANT: this permission is mandatory for trusted publishing
-
-    steps:
-    - uses: actions/checkout@v4
-    
-    - name: Set up Python
-      uses: actions/setup-python@v5
-      with:
-        python-version: "3.10"
-        
-    - name: Install build dependencies
-      run: |
-        python -m pip install --upgrade pip
-        pip install build
-        
-    - name: Build package
-      run: python -m build
-      
-    - name: Publish to PyPI
-      uses: pypa/gh-action-pypi-publish@release/v1
