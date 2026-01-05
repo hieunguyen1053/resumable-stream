@@ -149,46 +149,63 @@ class _ResumableStreamContext:
         make_stream: Callable[[], AsyncIterator[str]],
     ) -> AsyncIterator[str]:
         """Internal: Create the producer stream."""
-        chunks: List[str] = []
-        listener_channels: List[str] = []
+        # Map of listener_id -> remaining chars to skip
+        listener_channels: Dict[str, int] = {}
+        
+        # Queue for the main caller (the one who created the stream)
+        primary_queue: asyncio.Queue[Union[str, Exception, None]] = asyncio.Queue()
+        
         is_done = False
-        stream_done_event = asyncio.Event()
         
-        async def handle_request(message: str) -> None:
-            """Handle incoming resume requests from other consumers."""
-            nonlocal is_done
-            
-            parsed = json.loads(message)
-            listener_id = parsed["listenerId"]
-            skip_chars = parsed.get("skipCharacters", 0) or 0
-            
-            _debug_log("Connected to listener", listener_id)
-            listener_channels.append(listener_id)
-            
-            # Send buffered chunks, skipping requested characters
-            all_content = "".join(chunks)
-            chunks_to_send = all_content[skip_chars:]
-            
-            _debug_log("sending chunks", len(chunks_to_send))
-            await self._publisher.publish(
-                self._chunk_channel(listener_id), 
-                chunks_to_send
-            )
-            
-            if is_done:
-                await self._publisher.publish(
-                    self._chunk_channel(listener_id),
-                    DONE_MESSAGE
-                )
+        # We need a shared chunks list
+        chunks: List[str] = []
         
-        # Subscribe to resume requests
+        async def handle_request_wrapper(message: str) -> None:
+             nonlocal is_done
+             parsed = json.loads(message)
+             listener_id = parsed["listenerId"]
+             skip_chars = parsed.get("skipCharacters", 0) or 0
+             
+             _debug_log("Connected to listener", listener_id, "skip:", skip_chars)
+             
+             # Send buffered chunks
+             all_content = "".join(chunks)
+             
+             # Calculate how much history to send and how much to reduce skip_chars
+             current_history_len = len(all_content)
+             
+             if skip_chars <= current_history_len:
+                 # We have enough history to satisfy skip, or start sending
+                 chunks_to_send = all_content[skip_chars:]
+                 
+                 # Remaining skip for FUTURE chunks is 0
+                 listener_channels[listener_id] = 0
+             else:
+                 # History is not enough to satisfy skip
+                 chunks_to_send = ""
+                 # We still need to skip more chars from future chunks
+                 listener_channels[listener_id] = skip_chars - current_history_len
+             
+             # Always publish even if empty - this acts as the ACK for resume_stream
+             _debug_log("sending chunks", len(chunks_to_send), "remaining skip:", listener_channels[listener_id])
+             await self._publisher.publish(
+                 self._chunk_channel(listener_id), 
+                 chunks_to_send
+             )
+             
+             if is_done:
+                 await self._publisher.publish(
+                     self._chunk_channel(listener_id),
+                     DONE_MESSAGE
+                 )
+
         await self._subscriber.subscribe(
             self._request_channel(stream_id),
-            handle_request
+            handle_request_wrapper
         )
         
-        async def producer() -> AsyncIterator[str]:
-            """Produce chunks from the source stream."""
+        async def background_producer() -> None:
+            """Produce chunks from the source stream in background."""
             nonlocal is_done
             
             try:
@@ -196,43 +213,79 @@ class _ResumableStreamContext:
                     chunks.append(chunk)
                     
                     _debug_log("Enqueuing line", chunk)
-                    yield chunk
+                    # Send to primary consumer
+                    await primary_queue.put(chunk)
                     
                     # Broadcast to all listeners
-                    for listener_id in listener_channels:
-                        _debug_log("sending line to", listener_id)
-                        await self._publisher.publish(
-                            self._chunk_channel(listener_id),
-                            chunk
-                        )
+                    chunk_len = len(chunk)
+                    for listener_id, skip_remaining in list(listener_channels.items()):
+                        chunk_to_send = chunk
+                        
+                        if skip_remaining > 0:
+                            if skip_remaining >= chunk_len:
+                                # Skip entire chunk
+                                listener_channels[listener_id] -= chunk_len
+                                chunk_to_send = ""
+                            else:
+                                # Partial skip
+                                chunk_to_send = chunk[skip_remaining:]
+                                listener_channels[listener_id] = 0
+                        
+                        if chunk_to_send:
+                            _debug_log("sending line to", listener_id)
+                            await self._publisher.publish(
+                                self._chunk_channel(listener_id),
+                                chunk_to_send
+                            )
+                
+                # Stream finished successfully
+                await primary_queue.put(None)
+                
+            except Exception as e:
+                # Forward exception to primary consumer
+                await primary_queue.put(e)
             finally:
-                # Stream is done
+                # Stream is done (success or failure)
                 is_done = True
                 _debug_log("Stream done")
                 
-                # Mark sentinel as done
-                _debug_log("setting sentinel to done")
-                await self._publisher.set(
-                    self._sentinel_key(stream_id),
-                    DONE_VALUE,
-                    ex=DEFAULT_TTL
-                )
-                
-                # Unsubscribe from requests
-                await self._subscriber.unsubscribe(self._request_channel(stream_id))
-                
-                # Notify all listeners that stream is done
-                for listener_id in listener_channels:
-                    _debug_log("sending done message to", listener_id)
-                    await self._publisher.publish(
-                        self._chunk_channel(listener_id),
-                        DONE_MESSAGE
+                try:
+                    # Mark sentinel as done
+                    await self._publisher.set(
+                        self._sentinel_key(stream_id),
+                        DONE_VALUE,
+                        ex=DEFAULT_TTL
                     )
+                    
+                    # Unsubscribe from requests
+                    await self._subscriber.unsubscribe(self._request_channel(stream_id))
+                    
+                    # Notify all listeners that stream is done
+                    for listener_id in list(listener_channels.keys()):
+                        await self._publisher.publish(
+                            self._chunk_channel(listener_id),
+                            DONE_MESSAGE
+                        )
+                except Exception as e:
+                    # If we fail during cleanup (e.g. loop closed, client closed), just log it
+                    _debug_log("Error during cleanup:", e)
                 
-                stream_done_event.set()
                 _debug_log("Cleanup done")
-        
-        return producer()
+
+        # Start producer in background
+        asyncio.create_task(background_producer())
+
+        # Return iterator for primary consumer
+        async def primary_consumer() -> AsyncIterator[str]:
+            while True:
+                item = await primary_queue.get()
+                if item is None:
+                    break
+                if isinstance(item, Exception):
+                    raise item
+                yield item
+
+        return primary_consumer()
     
     async def _resume_stream(
         self,
@@ -259,7 +312,9 @@ class _ResumableStreamContext:
                 await self._subscriber.unsubscribe(self._chunk_channel(listener_id))
                 return
             
-            await queue.put(message)
+            # Ignore empty strings (ACKs) from user stream perspective
+            if message:
+                await queue.put(message)
         
         # Subscribe to our personal chunk channel
         await self._subscriber.subscribe(
