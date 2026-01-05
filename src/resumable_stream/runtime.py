@@ -168,30 +168,46 @@ class _ResumableStreamContext:
              
              _debug_log("Connected to listener", listener_id, "skip:", skip_chars)
              
-             # Send buffered chunks
-             all_content = "".join(chunks)
+             # Snapshot current chunks to avoid modification issues during iteration
+             chunks_snapshot = list(chunks)
              
-             # Calculate how much history to send and how much to reduce skip_chars
-             current_history_len = len(all_content)
+             # We need to calculate how much we've already sent/skipped
+             total_sent = 0
+             sent_any = False
              
-             if skip_chars <= current_history_len:
-                 # We have enough history to satisfy skip, or start sending
-                 chunks_to_send = all_content[skip_chars:]
+             for chunk in chunks_snapshot:
+                 chunk_len = len(chunk)
                  
-                 # Remaining skip for FUTURE chunks is 0
-                 listener_channels[listener_id] = 0
-             else:
-                 # History is not enough to satisfy skip
-                 chunks_to_send = ""
-                 # We still need to skip more chars from future chunks
-                 listener_channels[listener_id] = skip_chars - current_history_len
+                 if skip_chars >= chunk_len:
+                     # We still need to skip this entire chunk
+                     skip_chars -= chunk_len
+                     continue
+                 
+                 # valid chunk to send (at least partially)
+                 if skip_chars > 0:
+                     chunk_to_send = chunk[skip_chars:]
+                     skip_chars = 0
+                 else:
+                     chunk_to_send = chunk
+                 
+                 _debug_log("sending chunk to", listener_id, "len:", len(chunk_to_send))
+                 await self._publisher.publish(
+                     self._chunk_channel(listener_id),
+                     chunk_to_send
+                 )
+                 total_sent += 1
+                 sent_any = True
+            
+             # Update listener state for future chunks
+             listener_channels[listener_id] = skip_chars
              
-             # Always publish even if empty - this acts as the ACK for resume_stream
-             _debug_log("sending chunks", len(chunks_to_send), "remaining skip:", listener_channels[listener_id])
-             await self._publisher.publish(
-                 self._chunk_channel(listener_id), 
-                 chunks_to_send
-             )
+             # If we didn't send anything (empty history or all skipped), send an empty message as ACK
+             if not sent_any:
+                  _debug_log("sending empty ack to", listener_id)
+                  await self._publisher.publish(
+                      self._chunk_channel(listener_id), 
+                      ""
+                  )
              
              if is_done:
                  await self._publisher.publish(
