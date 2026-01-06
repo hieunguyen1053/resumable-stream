@@ -43,7 +43,7 @@ class _ResumableStreamContextImpl:
         self.key_prefix = f"{key_prefix}:rs"
         self.publisher = publisher
         self.subscriber = subscriber
-        self.wait_until = wait_until or (lambda p: asyncio.create_task(p))
+        self.wait_until = wait_until or (lambda p: asyncio.ensure_future(p))
 
     async def has_existing_stream(
         self, stream_id: str

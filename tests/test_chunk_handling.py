@@ -2,7 +2,7 @@
 import asyncio
 import pytest
 from typing import AsyncIterator
-from resumable_stream.runtime import _ResumableStreamContext, DONE_VALUE
+from resumable_stream.runtime import _ResumableStreamContextImpl, DONE_VALUE
 from .test_runtime import MockPublisher, MockSubscriber
 
 @pytest.fixture
@@ -18,7 +18,7 @@ async def test_resumed_stream_preserves_chunk_boundaries(
     mock_publisher, mock_subscriber
 ):
     """Test that resumed stream preserves chunk boundaries (e.g. for JSON lines)."""
-    ctx = _ResumableStreamContext(
+    ctx = _ResumableStreamContextImpl(
         key_prefix="test",
         publisher=mock_publisher,
         subscriber=mock_subscriber,

@@ -90,9 +90,9 @@ async def test_has_existing_stream_returns_none_when_no_stream(
     mock_publisher, mock_subscriber
 ):
     """Test that has_existing_stream returns None when no stream exists."""
-    from resumable_stream.runtime import _ResumableStreamContext
+    from resumable_stream.runtime import _ResumableStreamContextImpl
     
-    ctx = _ResumableStreamContext(
+    ctx = _ResumableStreamContextImpl(
         key_prefix="test",
         publisher=mock_publisher,
         subscriber=mock_subscriber,
@@ -107,9 +107,9 @@ async def test_has_existing_stream_returns_true_when_active(
     mock_publisher, mock_subscriber
 ):
     """Test that has_existing_stream returns True when stream is active."""
-    from resumable_stream.runtime import _ResumableStreamContext
+    from resumable_stream.runtime import _ResumableStreamContextImpl
     
-    ctx = _ResumableStreamContext(
+    ctx = _ResumableStreamContextImpl(
         key_prefix="test",
         publisher=mock_publisher,
         subscriber=mock_subscriber,
@@ -127,9 +127,9 @@ async def test_has_existing_stream_returns_done_when_finished(
     mock_publisher, mock_subscriber
 ):
     """Test that has_existing_stream returns 'DONE' when stream is finished."""
-    from resumable_stream.runtime import _ResumableStreamContext
+    from resumable_stream.runtime import _ResumableStreamContextImpl
     
-    ctx = _ResumableStreamContext(
+    ctx = _ResumableStreamContextImpl(
         key_prefix="test",
         publisher=mock_publisher,
         subscriber=mock_subscriber,
@@ -147,9 +147,9 @@ async def test_create_new_resumable_stream_sets_sentinel(
     mock_publisher, mock_subscriber
 ):
     """Test that create_new_resumable_stream sets the sentinel key."""
-    from resumable_stream.runtime import _ResumableStreamContext
+    from resumable_stream.runtime import _ResumableStreamContextImpl
     
-    ctx = _ResumableStreamContext(
+    ctx = _ResumableStreamContextImpl(
         key_prefix="test",
         publisher=mock_publisher,
         subscriber=mock_subscriber,
@@ -180,9 +180,9 @@ async def test_resumable_stream_returns_none_when_already_done(
     mock_publisher, mock_subscriber
 ):
     """Test that resumable_stream returns None when stream is already done."""
-    from resumable_stream.runtime import _ResumableStreamContext
+    from resumable_stream.runtime import _ResumableStreamContextImpl
     
-    ctx = _ResumableStreamContext(
+    ctx = _ResumableStreamContextImpl(
         key_prefix="test",
         publisher=mock_publisher,
         subscriber=mock_subscriber,
@@ -203,9 +203,9 @@ async def test_resume_existing_stream_returns_not_found_when_no_stream(
     mock_publisher, mock_subscriber
 ):
     """Test that resume_existing_stream returns NOT_FOUND when no stream exists."""
-    from resumable_stream.runtime import _ResumableStreamContext
+    from resumable_stream.runtime import _ResumableStreamContextImpl
     
-    ctx = _ResumableStreamContext(
+    ctx = _ResumableStreamContextImpl(
         key_prefix="test",
         publisher=mock_publisher,
         subscriber=mock_subscriber,
