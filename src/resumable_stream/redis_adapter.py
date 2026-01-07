@@ -2,7 +2,7 @@
 
 import asyncio
 import logging
-from typing import Any, Callable, Dict, Optional, Union, Awaitable
+from typing import Any, Awaitable, Callable, Dict, Optional, Union
 
 import redis.asyncio as redis
 
@@ -36,16 +36,20 @@ class RedisPublisher(Publisher):
         return await self._client.publish(channel, message)
 
     async def set(
-        self, key: str, value: str, options: Optional[Dict[str, Any]] = None, **kwargs: Any
+        self,
+        key: str,
+        value: str,
+        options: Optional[Dict[str, Any]] = None,
+        **kwargs: Any,
     ) -> Union[str, Any]:
         """Set a key-value pair with optional expiration."""
         if self._client is None:
             raise RuntimeError("Publisher not connected")
-        
+
         ex = kwargs.get("ex")
         if options and "ex" in options:
             ex = options["ex"]
-            
+
         return await self._client.set(key, value, ex=ex)
 
     async def get(self, key: str) -> Optional[str]:
@@ -92,7 +96,9 @@ class RedisSubscriber(Subscriber):
                 self._pubsub = None
                 raise
 
-    async def subscribe(self, channel: str, callback: Callable[[str], Awaitable[None]]) -> None:
+    async def subscribe(
+        self, channel: str, callback: Callable[[str], Awaitable[None]]
+    ) -> None:
         """Subscribe to a channel with a callback for messages."""
         if self._pubsub is None:
             raise RuntimeError("Subscriber not connected")
@@ -114,19 +120,19 @@ class RedisSubscriber(Subscriber):
                 if message["type"] == "message":
                     channel = message["channel"]
                     data = message["data"]
-                    
+
                     handler = self._handlers.get(channel)
                     if handler:
                         try:
-                            # Ensure we await the callback if it's a coroutine
                             await handler(data)
                         except Exception as e:
-                            logger.error(f"Error in subscription handler for {channel}: {e}")
+                            logger.error(
+                                f"Error in subscription handler for {channel}: {e}"
+                            )
         except asyncio.CancelledError:
             pass
         except Exception as e:
             logger.error(f"Redis subscriber listener error: {e}")
-            # Consider if we should reconnect here
 
     async def unsubscribe(self, channel: str) -> None:
         """Unsubscribe from a channel."""
@@ -136,7 +142,6 @@ class RedisSubscriber(Subscriber):
         self._handlers.pop(channel, None)
         await self._pubsub.unsubscribe(channel)
 
-        # Stop listener if no more handlers
         if not self._handlers and self._listener_task:
             self._listener_task.cancel()
             try:
@@ -153,12 +158,12 @@ class RedisSubscriber(Subscriber):
                 await self._listener_task
             except asyncio.CancelledError:
                 pass
-            
+
         if self._pubsub:
             await self._pubsub.aclose()
-            
+
         if self._client:
             await self._client.aclose()
-            
+
         self._client = None
         self._pubsub = None

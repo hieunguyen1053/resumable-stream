@@ -18,6 +18,7 @@ dev = [
     "pytest>=7.0.0",
     "pytest-asyncio>=0.21.0",
     "fakeredis>=2.20.0",
+    "ruff>=0.1.0",
 ]
 
 [tool.setuptools.packages.find]
@@ -27,3 +28,16 @@ where = ["src"]
 asyncio_mode = "auto"
 testpaths = ["tests"]
 
+[tool.ruff]
+line-length = 88
+target-version = "py39"
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+ignore = []
+
+[tool.ruff.format]
+quote-style = "double"
+indent-style = "space"
+skip-magic-trailing-comma = false
+line-ending = "auto"
